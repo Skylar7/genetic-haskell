@@ -16,8 +16,8 @@ type Point = (Double, Double)
 type RandList = [Double]
 
 acceptableError = 1.0
-randList = take 20000 $ randomRs (1,20) (mkStdGen 69) :: [Double]
-points = ["1 3", "2 4", "3 5", "6 7.5", "14.2 16.69"]
+randList = take 200000 $ randomRs (1,20) (mkStdGen 69) :: [Double]
+points = ["1 3", "2 4", "3 5", "6 7.9", "14.2 16.4"]
 
 makeTerm :: Double -> Leaf
 makeTerm x = Terminal x
@@ -79,16 +79,9 @@ fullTree (ts,os)
         currentOp = head os
         remOp = tail os
 
-makeTree :: Int -> RandList -> ExpTree --depth is the Int
-makeTree depth xs = fullTree $ listTree depth xs
-
-makePopulation :: Int -> [Int] -> RandList -> [ExpTree] --num of trees, max depth are the Int
-makePopulation n (d:ds) xs
- | n == 0 = []
- | length xs < (2 ^ d - 1) = []
- | otherwise = makeTree d xs : makePopulation (n - 1) (d:ds) rem
-  where rem = snd $ splitAt numNodes xs
-        numNodes = 2 ^ d - 1
+makeTree :: Int -> RandList -> (ExpTree, RandList) --depth is the Int
+makeTree depth xs = (fullTree ( listTree depth xs), rem)
+ where rem = snd $ splitAt (2 ^ depth - 1) xs
 
 evalTreeSingle :: Double -> ExpTree -> Double
 evalTreeSingle x (Node (Terminal z) (Empty) (Empty)) = if z == 0.0 then x else z
@@ -119,19 +112,53 @@ outputs (x:xs) = (read converted :: Double) : outputs xs
 cull :: [ExpTree] -> [Double] -> [ExpTree] -- [Double] is list of errors for each tree
 cull trees errors = fst . unzip . sortBy compareSecond $ filter (\(t,errs) -> errs < avgErr) list
  where list = zip trees errors
+--       totalErr = (avgErr + medErr) / 2
        avgErr = sum errors / (genericLength errors)
+--       medErr =  head . snd $ splitAt ((genericLength errors) `div` 2) (sort errors)
        compareSecond (x,xs) (y,ys) = if ys > xs then GT else LT 
 
+makePopulation :: Int -> [Int] -> RandList -> ([ExpTree], RandList) --num of trees, max depth are the Int
+makePopulation 0 _ _ = ([],[])
+makePopulation n (d:ds) xs = (tree : fst (makePopulation (n - 1) ds rem), randRem)
+  where tree = fst $ makeTree d xs
+        rem = snd $ splitAt (2 ^ d -1) xs
+        randRem = snd $ splitAt totalNodes xs
+        totalNodes = sum . take n $ map (\x -> 2 ^ x - 1) (d:ds)
+
+reapGeneration :: [String] -> [ExpTree] -> [ExpTree]
+reapGeneration points trees = cull trees . map (err outs) $ map (evalTree ins) trees
+ where outs = outputs points
+       ins = inputs points
+run1Gen :: Int -> [Int] -> RandList -> [String] -> ([ExpTree], RandList)
+run1Gen n depths rs points = (reapGeneration points trees, rem) 
+ where (trees, rem) = makePopulation n depths rs
+--idea for later: Don't need to put the points variable in these functions, just make it a global variable with the function that is called by main
+run2Gen :: [String] -> ([ExpTree],RandList) -> ([ExpTree], RandList)
+run2Gen points oldGen = (reapGeneration points newGen, rem)
+ where (newGen, rem) = genHelper oldGen
+
+runAllGen :: Int -> [Int] -> RandList -> [String] -> Int -> ([ExpTree], RandList) -> ([ExpTree],RandList) --5th parameter is generation tracker
+runAllGen 0 [0] [0] points genTrack oldGen
+ |errBest < acceptableError = ([best],[])
+ |length (fst oldGen) == 1 = ([best],[])
+ |genTrack == 20 = ([best], [errBest])
+ |otherwise = runAllGen 0 [0] [0] points (genTrack + 1) (run2Gen points oldGen)
+  where best = head $ fst oldGen
+        errBest = err (outputs points) $ evalTree (inputs points) best
+runAllGen n depths rs points 0 _ =  runAllGen 0 [0] [0] points 0 (genHelper $ run1Gen n depths rs points)
+--        rem = snd $ reapGeneration points $ genHelper oldGen
+{-
 generationInitial :: Int -> (Int,Int) -> [String] -> RandList -> ([ExpTree], RandList)
 generationInitial trees (minDepth, maxDepth) points xs = (cull forest . map (err outs) $ map (evalTree ins) forest, rem)
  where forest = makePopulation trees (cycle [minDepth..maxDepth]) xs
        outs = outputs points
        ins = inputs points
        rem = snd $ splitAt (trees * 2 ^ ((minDepth + maxDepth) `div` 2)) xs
+-}
 --Remember to test these both out thoroughly tomorrow (crossover and mutate)
 crossover :: ExpTree -> ExpTree -> RandList -> (ExpTree,RandList)
-crossover (Node (Terminal t1) Empty Empty) bogus (x:xs) = (bogus, xs) 
-crossover bogus (Node (Terminal t1) Empty Empty) (x:xs) = (bogus, xs)
+crossover bogus (Node (Terminal t1) Empty Empty) xs = (bogus, xs) 
+crossover (Node (Terminal t1) Empty Empty) bogus xs = (bogus, xs) 
 crossover (Node (o1) (left1) (right1)) (Node (o2) (left2) (right2)) (x:xs)
  | mod (ceiling x) 16 == 1 = ((Node (o1) (left1) (right2)), xs) 
  | mod (ceiling x) 16 == 2 = ((Node (o1) (left2) (right1)), xs)
@@ -148,7 +175,7 @@ crossover (Node (o1) (left1) (right1)) (Node (o2) (left2) (right2)) (x:xs)
  | mod (ceiling x) 16 == 13 = crossover (left2) (left1) xs
  | mod (ceiling x) 16 == 14 = crossover (left2) (right1) xs
  | mod (ceiling x) 16 == 15 = crossover (right2) (left1) xs
- | mod (ceiling x) 16 == 16 = crossover (right2) (right1) xs
+ | mod (ceiling x) 16 == 0 = crossover (right2) (right1) xs
 
 mutate :: ExpTree -> RandList -> (ExpTree, RandList)
 mutate (Node (Terminal t) Empty Empty) (x:xs)
@@ -158,19 +185,22 @@ mutate (Node (Operator o) (left) (right)) (x:xs)
  |mod (ceiling x) 40 `elem` [1..10] = (Node (Operator o) (newBranch) (right), rem)
  |mod (ceiling x) 40 `elem` [11..20] = (Node (Operator o) (left) (newBranch), rem)
  |mod (ceiling x) 40 `elem` [30..39] =  mutate (Node (Operator o) (left) (right)) xs
-  where newBranch = makeTree twoOrThree xs 
+  where newBranch = fst $ makeTree twoOrThree xs 
         twoOrThree = (mod (ceiling x) 2) + 2
         rem = snd $ splitAt ((2 ^ twoOrThree) - 1) xs
-
+{-
 makeNewGen :: ([ExpTree],RandList) -> ([ExpTree], RandList)
 makeNewGen (t1:t2:ts, xs) = (t1 : t2 : newTrees, rem)
  where newTrees = fst $ genHelper (t1:t2:ts, xs)
        rem = snd $ genHelper (t1:t2:ts, xs)
-
+-}
 genHelper :: ([ExpTree], RandList) -> ([ExpTree], RandList)
+genHelper ([], xs) = ([], xs)
+genHelper (t1:[], xs) = (t1:[], xs)
 genHelper (t1:t2:ts, x:xs)
- |mod (ceiling x) 100 `elem` [1..85] = (cross : treeCross, xs \\ totalRemCross)
- |mod (ceiling x) 100 `elem` [86..100] = (mut : mutCross, xs \\ totalRemMut)
+ |null ts = (t1:t2:[], x:xs)
+ |mod (ceiling x) 100 `elem` [0..85] = (cross : treeCross, xs \\ totalRemCross)
+ |mod (ceiling x) 100 `elem` [86..99] = (mut : mutCross, xs \\ totalRemMut)
  where (cross, remCross) = crossover t1 t2 xs
        (treeCross, totalRemCross) = genHelper (ts, remCross)
        (mut, remMut) = mutate t1 xs
