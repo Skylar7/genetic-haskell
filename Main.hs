@@ -18,9 +18,9 @@ main = do
    handle <- openFile fileName ReadMode
    contents <- hGetContents handle
    let points = lines contents
-       rands = take 1000 $ randomRs (1,50) gen :: [Double]
-   print points
---   putStrLn $ genFunction points rands
+       rands = take 5000000 $ randomRs (1,50) gen :: [Double]
+--   print points
+   print $ genFunction points rands
   else do putStrLn "That file doesn't exist" 
 
  else do
@@ -32,8 +32,8 @@ main = do
    handle <- openFile fileName ReadMode
    contents <- hGetContents handle
    let points = lines contents
-       rands = take 1000 $ randomRs (1,50) gen :: [Double]
-   print points
---   putStrLn $ genFunction points rands
+       rands = take 1000000 $ randomRs (1,50) gen :: [Double]
+--   print points
+   print $ genFunction points rands
   else do putStrLn "That file doesn't exist" 
 

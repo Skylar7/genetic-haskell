@@ -1,5 +1,5 @@
 module Tree
-( makePopulation
+( genFunction 
 ) where
 
 import System.Random
@@ -15,9 +15,13 @@ type ExpTree = Tree Leaf --ExpTree stands for "Expression Tree"
 type Point = (Double, Double)
 type RandList = [Double]
 
+defPop = 50
+defRange = (2,4)
+defGens = 20
 acceptableError = 1.0
-randList = take 200000 $ randomRs (1,20) (mkStdGen 69) :: [Double]
-points = ["1 3", "2 4", "3 5", "6 7.9", "14.2 16.4"]
+--Testing variables:
+randList = take 1000000 $ randomRs (1,20) (mkStdGen 69) :: [Double]
+points = ["1 3", "2 4", "3 5", "6 7.8"]
 
 makeTerm :: Double -> Leaf
 makeTerm x = Terminal x
@@ -133,28 +137,11 @@ run1Gen :: Int -> [Int] -> RandList -> [String] -> ([ExpTree], RandList)
 run1Gen n depths rs points = (reapGeneration points trees, rem) 
  where (trees, rem) = makePopulation n depths rs
 --idea for later: Don't need to put the points variable in these functions, just make it a global variable with the function that is called by main
-run2Gen :: [String] -> ([ExpTree],RandList) -> ([ExpTree], RandList)
-run2Gen points oldGen = (reapGeneration points newGen, rem)
+runGen :: [String] -> ([ExpTree],RandList) -> ([ExpTree], RandList)
+runGen points oldGen = (reapGeneration points newGen, rem)
  where (newGen, rem) = genHelper oldGen
 
-runAllGen :: Int -> [Int] -> RandList -> [String] -> Int -> ([ExpTree], RandList) -> ([ExpTree],RandList) --5th parameter is generation tracker
-runAllGen 0 [0] [0] points genTrack oldGen
- |errBest < acceptableError = ([best],[])
- |length (fst oldGen) == 1 = ([best],[])
- |genTrack == 20 = ([best], [errBest])
- |otherwise = runAllGen 0 [0] [0] points (genTrack + 1) (run2Gen points oldGen)
-  where best = head $ fst oldGen
-        errBest = err (outputs points) $ evalTree (inputs points) best
-runAllGen n depths rs points 0 _ =  runAllGen 0 [0] [0] points 0 (genHelper $ run1Gen n depths rs points)
---        rem = snd $ reapGeneration points $ genHelper oldGen
-{-
-generationInitial :: Int -> (Int,Int) -> [String] -> RandList -> ([ExpTree], RandList)
-generationInitial trees (minDepth, maxDepth) points xs = (cull forest . map (err outs) $ map (evalTree ins) forest, rem)
- where forest = makePopulation trees (cycle [minDepth..maxDepth]) xs
-       outs = outputs points
-       ins = inputs points
-       rem = snd $ splitAt (trees * 2 ^ ((minDepth + maxDepth) `div` 2)) xs
--}
+
 --Remember to test these both out thoroughly tomorrow (crossover and mutate)
 crossover :: ExpTree -> ExpTree -> RandList -> (ExpTree,RandList)
 crossover bogus (Node (Terminal t1) Empty Empty) xs = (bogus, xs) 
@@ -188,12 +175,7 @@ mutate (Node (Operator o) (left) (right)) (x:xs)
   where newBranch = fst $ makeTree twoOrThree xs 
         twoOrThree = (mod (ceiling x) 2) + 2
         rem = snd $ splitAt ((2 ^ twoOrThree) - 1) xs
-{-
-makeNewGen :: ([ExpTree],RandList) -> ([ExpTree], RandList)
-makeNewGen (t1:t2:ts, xs) = (t1 : t2 : newTrees, rem)
- where newTrees = fst $ genHelper (t1:t2:ts, xs)
-       rem = snd $ genHelper (t1:t2:ts, xs)
--}
+
 genHelper :: ([ExpTree], RandList) -> ([ExpTree], RandList)
 genHelper ([], xs) = ([], xs)
 genHelper (t1:[], xs) = (t1:[], xs)
@@ -205,25 +187,19 @@ genHelper (t1:t2:ts, x:xs)
        (treeCross, totalRemCross) = genHelper (ts, remCross)
        (mut, remMut) = mutate t1 xs
        (mutCross, totalRemMut) = genHelper ((t2:ts), remMut)
-{-
-finish :: [ExpTree] -> [String] -> [ExpTree]
-finsh [] _ = []
-finish (x:xs) points = if err outs (evalTree ins x) < acceptableError then [x] else finish xs points
-    where ins = inputs points
-          outs = outputs points
 
-loop :: [ExpTree] -> [String] -> ExpTree
-loop trees points = if finish trees points == Nothing then
--}
-{- Try to recycle this code to test each new generation
-generationInitial trees (minDepth, maxDepth) points xs = (cull forest . map (err outs) $ map (evalTree ins) forest, rem)
- where forest = makePopulation trees (cycle [minDepth..maxDepth]) xs
-       outs = outputs points
-       ins = inputs points
-       rem = snd $ splitAt (trees * 2 ^ ((minDepth + maxDepth) `div` 2)) xs
--}
-{-       
-genFunction :: [String] -> RandList -> String
-genFunction str nums = randOpList nums 
--}
+runAllGen :: Int -> (Int,Int) -> RandList -> [String] -> Double -> ([ExpTree], RandList) -> ([ExpTree],RandList) --5th parameter is generation tracker
+runAllGen 0 (0,0) [0] points genTrack oldGen
+ |errBest < acceptableError = ([best],genTrack:errBest:[])
+ |length (fst oldGen) == 1 = ([best],1:errBest:[])
+ |genTrack == defGens = ([best], 20:errBest:[])
+ |otherwise = runAllGen 0 (0,0) [0] points (genTrack + 1) (runGen points oldGen)
+  where best = head $ fst oldGen
+        errBest = err (outputs points) $ evalTree (inputs points) best
+runAllGen n (minDepth,maxDepth) rs points 0 _ =  runAllGen 0 (0,0) [0] points 0 (genHelper $ run1Gen n (cycle[minDepth..maxDepth]) rs points)
+--        rem = snd $ reapGeneration points $ genHelper oldGen
+
+genFunction :: [String] -> RandList -> ExpTree
+genFunction points nums = head . fst $ runAllGen defPop defRange nums points 0 ([],[])
+
 
